@@ -5,14 +5,15 @@ services:
     pythonVersion: "3.11.9"
     buildCommand: "pip install -r requirements.txt"
     startCommand: "python bot.py"
+    healthCheckPath: "/ping"
     plan: free
     
     envVars:
       # Required
       - key: BOT_TOKEN
-        sync: false
+        value: "8914432990:AAH3Aw-jscK5_GJ-eE5CF5qw9xYcC7Z8BRM"
       - key: CHAT_ID
-        sync: false
+        value: "8523442119"
       
       # Trading Configuration
       - key: SYMBOLS
