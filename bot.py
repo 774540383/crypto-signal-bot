@@ -249,10 +249,6 @@ async def signal_cmd(u: Update, c: ContextTypes.DEFAULT_TYPE):
         logger.info(f"📢 تم إرسال إشارة: {best['dir']} {best['sym']}")
     except Exception as e:
         logger.error(f"❌ خطأ في signal_cmd: {e}")
-        try:
-            await u.message.reply_text(f"❌ حدث خطأ: {str(e)[:50]}")
-        except:
-            pass
 
 async def status_cmd(u: Update, c: ContextTypes.DEFAULT_TYPE):
     try:
@@ -399,8 +395,16 @@ def ping():
     return jsonify({"pong": True}), 200
 
 # ── Main ────────────────────────────────────────────
-async def main():
-    """الدالة الرئيسية للبوت"""
+def run_flask():
+    """تشغيل Flask في خيط منفصل"""
+    try:
+        logger.info(f"🌐 بدء Flask على المنفذ {PORT}...")
+        app.run(host="0.0.0.0", port=PORT, use_reloader=False, debug=False, threaded=True)
+    except Exception as e:
+        logger.error(f"❌ خطأ في Flask: {e}")
+
+async def run_bot():
+    """تشغيل البوت"""
     logger.info("="*50)
     logger.info("🚀 بدء بوت الإشارات الاحترافي")
     logger.info("="*50)
@@ -410,8 +414,9 @@ async def main():
     logger.info(f"   الحد الأدنى للنقاط: {MIN_SCORE}")
     logger.info(f"   الفاصل الزمني: {INTERVAL} ثانية")
     
-    # بدء الماسح التلقائي في خيط منفصل
+    # بدء الماسح التلقائي
     asyncio.create_task(auto_scan_loop())
+    logger.info("✅ تم بدء الماسح التلقائي")
     
     # بدء البوت
     application = Application.builder().token(BOT_TOKEN).build()
@@ -433,17 +438,9 @@ async def main():
     logger.info("✅ تم تسجيل جميع المعالجات")
     logger.info("📱 بدء استقبال الرسائل...")
     
-    await application.initialize()
-    await application.start()
-    await application.updater.start_polling(allowed_updates=Update.ALL_TYPES)
-
-def run_flask():
-    """تشغيل Flask في خيط منفصل"""
-    try:
-        logger.info(f"🌐 بدء Flask على المنفذ {PORT}...")
-        app.run(host="0.0.0.0", port=PORT, use_reloader=False, debug=False, threaded=True)
-    except Exception as e:
-        logger.error(f"❌ خطأ في Flask: {e}")
+    async with application:
+        await application.start()
+        await application.updater.start_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == "__main__":
     # بدء Flask في خيط منفصل
@@ -453,7 +450,7 @@ if __name__ == "__main__":
     
     # بدء البوت
     try:
-        asyncio.run(main())
+        asyncio.run(run_bot())
     except KeyboardInterrupt:
         logger.info("🛑 تم إيقاف البوت بواسطة المستخدم")
     except Exception as e:
