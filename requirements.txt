@@ -1,3 +1,5 @@
 python-telegram-bot==20.7
 requests==2.32.3
 flask==3.0.3
+gunicorn==21.2.0
+python-dotenv==1.0.0
