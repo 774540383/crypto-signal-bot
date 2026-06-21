@@ -6,18 +6,34 @@ services:
     buildCommand: "pip install -r requirements.txt"
     startCommand: "python bot.py"
     plan: free
+    
     envVars:
+      # Required
       - key: BOT_TOKEN
         sync: false
       - key: CHAT_ID
         sync: false
+      
+      # Trading Configuration
       - key: SYMBOLS
-        value: BTCUSDT,ETHUSDT,SOLUSDT
-      - key: CHECK_INTERVAL_SECONDS
-        value: "300"
+        value: "BTCUSDT,ETHUSDT,SOLUSDT"
       - key: MIN_SCORE
         value: "70"
-      - key: ACCOUNT_SIZE
-        value: "100"
+      - key: ATR_MULT
+        value: "1.5"
       - key: RISK_PCT
         value: "0.02"
+      - key: ACCOUNT_SIZE
+        value: "100"
+      - key: MAX_DAILY_SIGNALS
+        value: "3"
+      - key: MAX_DAILY_LOSSES
+        value: "3"
+      - key: COOLDOWN_MINUTES
+        value: "45"
+      
+      # Server Configuration
+      - key: CHECK_INTERVAL_SECONDS
+        value: "300"
+      - key: PORT
+        value: "10000"
