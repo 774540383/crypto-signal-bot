@@ -1,13 +1,28 @@
 # -*- coding: utf-8 -*-
-import os, time, math, asyncio, threading
+import os
+import sys
+import time
+import math
+import asyncio
+import threading
+import logging
 from datetime import date
 import requests
 from flask import Flask, jsonify
 from telegram import Update, Bot
 from telegram.ext import Application, CommandHandler, ContextTypes
 
-BOT_TOKEN    = os.getenv("BOT_TOKEN", "")
-CHAT_ID      = os.getenv("CHAT_ID", "")
+# إعداد السجلات
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[logging.StreamHandler(sys.stdout)]
+)
+logger = logging.getLogger(__name__)
+
+# متغيرات البيئة
+BOT_TOKEN    = os.getenv("BOT_TOKEN", "").strip()
+CHAT_ID      = os.getenv("CHAT_ID", "").strip()
 SYMBOLS      = os.getenv("SYMBOLS", "BTCUSDT,ETHUSDT,SOLUSDT").split(",")
 TIMEFRAMES   = ["15m", "1h"]
 MIN_SCORE    = int(os.getenv("MIN_SCORE", "70"))
@@ -19,6 +34,20 @@ MAX_LOSSES   = int(os.getenv("MAX_DAILY_LOSSES", "3"))
 COOLDOWN     = int(os.getenv("COOLDOWN_MINUTES", "45"))
 INTERVAL     = int(os.getenv("CHECK_INTERVAL_SECONDS", "300"))
 PORT         = int(os.getenv("PORT", "10000"))
+
+# التحقق من المتغيرات المهمة
+if not BOT_TOKEN:
+    logger.error("❌ BOT_TOKEN غير موجود!")
+    sys.exit(1)
+if not CHAT_ID:
+    logger.error("❌ CHAT_ID غير موجود!")
+    sys.exit(1)
+
+logger.info(f"✅ تم التحقق من المتغيرات:")
+logger.info(f"   BOT_TOKEN: {BOT_TOKEN[:20]}...")
+logger.info(f"   CHAT_ID: {CHAT_ID}")
+logger.info(f"   SYMBOLS: {SYMBOLS}")
+logger.info(f"   PORT: {PORT}")
 
 state = {"daily_signals":0,"daily_losses":0,"consec_losses":0,
          "last":{},"today":date.today(),"total":0,"wins":0,"losses":0,"paused":False}
@@ -38,7 +67,7 @@ def klines(symbol, interval, limit=250):
         return ([float(k[1]) for k in d],[float(k[2]) for k in d],
                 [float(k[3]) for k in d],[float(k[4]) for k in d],[float(k[5]) for k in d])
     except Exception as e:
-        print(f"خطأ في جلب البيانات من Binance: {e}")
+        logger.warning(f"⚠️ خطأ في جلب البيانات من Binance ({symbol}): {e}")
         return None,None,None,None,None
 
 # ── Indicators ───────────────────────────────────────
@@ -186,8 +215,9 @@ async def start(u: Update, c: ContextTypes.DEFAULT_TYPE):
             "/risk [1-3] – نسبة المخاطرة\n"
             "/win – سجل ربح\n/loss – سجل خسارة",
             parse_mode="Markdown")
+        logger.info("✅ تم إرسال رسالة /start")
     except Exception as e:
-        print(f"خطأ في start: {e}")
+        logger.error(f"❌ خطأ في start: {e}")
 
 async def signal_cmd(u: Update, c: ContextTypes.DEFAULT_TYPE):
     try:
@@ -216,9 +246,13 @@ async def signal_cmd(u: Update, c: ContextTypes.DEFAULT_TYPE):
         state["total"] += 1
         state["last"][best["_k"]] = time.time()
         await u.message.reply_text(fmt(best), parse_mode="Markdown")
+        logger.info(f"📢 تم إرسال إشارة: {best['dir']} {best['sym']}")
     except Exception as e:
-        print(f"خطأ في signal_cmd: {e}")
-        await u.message.reply_text(f"❌ حدث خطأ: {str(e)}")
+        logger.error(f"❌ خطأ في signal_cmd: {e}")
+        try:
+            await u.message.reply_text(f"❌ حدث خطأ: {str(e)[:50]}")
+        except:
+            pass
 
 async def status_cmd(u: Update, c: ContextTypes.DEFAULT_TYPE):
     try:
@@ -231,8 +265,9 @@ async def status_cmd(u: Update, c: ContextTypes.DEFAULT_TYPE):
             f"إجمالي: {state['total']} | ربح: {state['wins']} | خسارة: {state['losses']}\n"
             f"نسبة الربح: {wr}%\nرأس المال: {ACCOUNT}$ | خطر: {RISK_PCT*100}%",
             parse_mode="Markdown")
+        logger.info("✅ تم إرسال /status")
     except Exception as e:
-        print(f"خطأ في status_cmd: {e}")
+        logger.error(f"❌ خطأ في status_cmd: {e}")
 
 async def capital_cmd(u: Update, c: ContextTypes.DEFAULT_TYPE):
     global ACCOUNT
@@ -242,9 +277,10 @@ async def capital_cmd(u: Update, c: ContextTypes.DEFAULT_TYPE):
             return
         ACCOUNT = float(c.args[0])
         await u.message.reply_text(f"✅ رأس المال: {ACCOUNT}$")
+        logger.info(f"💰 تم تحديث رأس المال: {ACCOUNT}")
     except Exception as e:
         await u.message.reply_text("❌ مثال: /capital 100")
-        print(f"خطأ في capital_cmd: {e}")
+        logger.error(f"❌ خطأ في capital_cmd: {e}")
 
 async def risk_cmd(u: Update, c: ContextTypes.DEFAULT_TYPE):
     global RISK_PCT
@@ -257,17 +293,19 @@ async def risk_cmd(u: Update, c: ContextTypes.DEFAULT_TYPE):
             raise ValueError("القيمة خارج النطاق")
         RISK_PCT = v/100
         await u.message.reply_text(f"✅ المخاطرة: {v}%")
+        logger.info(f"⚠️ تم تحديث المخاطرة: {v}%")
     except Exception as e:
         await u.message.reply_text("❌ مثال: /risk 2 (0.5-3)")
-        print(f"خطأ في risk_cmd: {e}")
+        logger.error(f"❌ خطأ في risk_cmd: {e}")
 
 async def win_cmd(u: Update, c: ContextTypes.DEFAULT_TYPE):
     try:
         state["wins"] += 1
         state["consec_losses"] = 0
         await u.message.reply_text(f"✅ ربح مسجل! إجمالي: {state['wins']}")
+        logger.info(f"🎉 ربح مسجل - الإجمالي: {state['wins']}")
     except Exception as e:
-        print(f"خطأ في win_cmd: {e}")
+        logger.error(f"❌ خطأ في win_cmd: {e}")
 
 async def loss_cmd(u: Update, c: ContextTypes.DEFAULT_TYPE):
     try:
@@ -277,43 +315,50 @@ async def loss_cmd(u: Update, c: ContextTypes.DEFAULT_TYPE):
         if state["consec_losses"] >= MAX_LOSSES:
             state["paused"] = True
             await u.message.reply_text("⛔ 3 خسائر متتالية. البوت متوقف حتى الغد.")
+            logger.warning("⛔ تم إيقاف البوت: 3 خسائر متتالية")
         else:
             await u.message.reply_text(f"❌ خسارة مسجلة. متتالية: {state['consec_losses']}/{MAX_LOSSES}")
+            logger.info(f"📉 خسارة مسجلة - المتتالية: {state['consec_losses']}")
     except Exception as e:
-        print(f"خطأ في loss_cmd: {e}")
+        logger.error(f"❌ خطأ في loss_cmd: {e}")
 
 # ── Auto Scanner ────────────────────────────────────
-def auto_scan():
-    async def _run():
-        bot = Bot(token=BOT_TOKEN)
-        while True:
-            try:
-                await asyncio.sleep(INTERVAL)
-                reset_daily()
-                if state["paused"] or state["daily_signals"] >= MAX_SIGNALS:
-                    continue
-                best = None
-                for sym in SYMBOLS:
-                    for tf in TIMEFRAMES:
-                        k = f"{sym.strip()}_{tf}"
-                        if time.time() - state["last"].get(k, 0) < COOLDOWN*60:
-                            continue
-                        sig = analyze(sym.strip(), tf)
-                        if sig and (not best or sig["score"] > best["score"]):
-                            best = sig
-                            best["_k"] = k
-                if best:
-                    state["daily_signals"] += 1
-                    state["total"] += 1
-                    state["last"][best["_k"]] = time.time()
-                    try:
-                        await bot.send_message(chat_id=CHAT_ID, text=fmt(best), parse_mode="Markdown")
-                    except Exception as e:
-                        print(f"خطأ في الإرسال: {e}")
-            except Exception as e:
-                print(f"خطأ في auto_scan: {e}")
-                await asyncio.sleep(5)
-    asyncio.run(_run())
+async def auto_scan_loop():
+    """حلقة الماسح التلقائي"""
+    bot = Bot(token=BOT_TOKEN)
+    logger.info("🤖 بدء الماسح التلقائي...")
+    
+    while True:
+        try:
+            await asyncio.sleep(INTERVAL)
+            reset_daily()
+            
+            if state["paused"] or state["daily_signals"] >= MAX_SIGNALS:
+                continue
+            
+            best = None
+            for sym in SYMBOLS:
+                for tf in TIMEFRAMES:
+                    k = f"{sym.strip()}_{tf}"
+                    if time.time() - state["last"].get(k, 0) < COOLDOWN*60:
+                        continue
+                    sig = analyze(sym.strip(), tf)
+                    if sig and (not best or sig["score"] > best["score"]):
+                        best = sig
+                        best["_k"] = k
+            
+            if best:
+                state["daily_signals"] += 1
+                state["total"] += 1
+                state["last"][best["_k"]] = time.time()
+                try:
+                    await bot.send_message(chat_id=CHAT_ID, text=fmt(best), parse_mode="Markdown")
+                    logger.info(f"📢 إشارة تلقائية: {best['dir']} {best['sym']}")
+                except Exception as e:
+                    logger.error(f"❌ خطأ في إرسال الإشارة التلقائية: {e}")
+        except Exception as e:
+            logger.error(f"❌ خطأ في الماسح التلقائي: {e}")
+            await asyncio.sleep(5)
 
 # ── Flask ───────────────────────────────────────────
 app = Flask(__name__)
@@ -329,7 +374,7 @@ def health():
             "timestamp": str(date.today())
         }), 200
     except Exception as e:
-        print(f"خطأ في health: {e}")
+        logger.error(f"❌ خطأ في health: {e}")
         return jsonify({"status": "error", "message": str(e)}), 500
 
 @app.route("/stats")
@@ -346,43 +391,71 @@ def stats():
             "win_rate": round(state["wins"]/(state["wins"]+state["losses"])*100) if state["wins"]+state["losses"] else 0
         }), 200
     except Exception as e:
+        logger.error(f"❌ خطأ في stats: {e}")
         return jsonify({"status": "error", "message": str(e)}), 500
 
-def run_flask():
-    try:
-        app.run(host="0.0.0.0", port=PORT, use_reloader=False, debug=False)
-    except Exception as e:
-        print(f"خطأ في Flask: {e}")
+@app.route("/ping")
+def ping():
+    return jsonify({"pong": True}), 200
 
 # ── Main ────────────────────────────────────────────
-def main():
+async def main():
+    """الدالة الرئيسية للبوت"""
+    logger.info("="*50)
+    logger.info("🚀 بدء بوت الإشارات الاحترافي")
+    logger.info("="*50)
+    logger.info(f"📊 الإعدادات:")
+    logger.info(f"   العملات: {SYMBOLS}")
+    logger.info(f"   الفترات: {TIMEFRAMES}")
+    logger.info(f"   الحد الأدنى للنقاط: {MIN_SCORE}")
+    logger.info(f"   الفاصل الزمني: {INTERVAL} ثانية")
+    
+    # بدء الماسح التلقائي في خيط منفصل
+    asyncio.create_task(auto_scan_loop())
+    
+    # بدء البوت
+    application = Application.builder().token(BOT_TOKEN).build()
+    
+    # إضافة المعالجات
+    handlers = [
+        ("start", start),
+        ("signal", signal_cmd),
+        ("status", status_cmd),
+        ("capital", capital_cmd),
+        ("risk", risk_cmd),
+        ("win", win_cmd),
+        ("loss", loss_cmd)
+    ]
+    
+    for cmd, handler in handlers:
+        application.add_handler(CommandHandler(cmd, handler))
+    
+    logger.info("✅ تم تسجيل جميع المعالجات")
+    logger.info("📱 بدء استقبال الرسائل...")
+    
+    await application.initialize()
+    await application.start()
+    await application.updater.start_polling(allowed_updates=Update.ALL_TYPES)
+
+def run_flask():
+    """تشغيل Flask في خيط منفصل"""
     try:
-        if not BOT_TOKEN:
-            raise ValueError("BOT_TOKEN مفقود!")
-        if not CHAT_ID:
-            raise ValueError("CHAT_ID مفقود!")
-        
-        print("✅ بدء البوت...")
-        print(f"   العملات: {SYMBOLS}")
-        print(f"   الفترات الزمنية: {TIMEFRAMES}")
-        print(f"   الحد الأدنى للنقاط: {MIN_SCORE}")
-        
-        threading.Thread(target=run_flask, daemon=True).start()
-        print("✅ Flask بدأ على المنفذ", PORT)
-        
-        threading.Thread(target=auto_scan, daemon=True).start()
-        print("✅ ماسح تلقائي بدأ")
-        
-        application = Application.builder().token(BOT_TOKEN).build()
-        for cmd, fn in [("start", start), ("signal", signal_cmd), ("status", status_cmd),
-                       ("capital", capital_cmd), ("risk", risk_cmd), ("win", win_cmd), ("loss", loss_cmd)]:
-            application.add_handler(CommandHandler(cmd, fn))
-        
-        print("✅ البوت جاهز! بدء الاستقبال...")
-        application.run_polling(allowed_updates=Update.ALL_TYPES)
+        logger.info(f"🌐 بدء Flask على المنفذ {PORT}...")
+        app.run(host="0.0.0.0", port=PORT, use_reloader=False, debug=False, threaded=True)
     except Exception as e:
-        print(f"❌ خطأ حرج: {e}")
-        raise
+        logger.error(f"❌ خطأ في Flask: {e}")
 
 if __name__ == "__main__":
-    main()
+    # بدء Flask في خيط منفصل
+    flask_thread = threading.Thread(target=run_flask, daemon=True)
+    flask_thread.start()
+    logger.info("✅ Flask في خيط منفصل")
+    
+    # بدء البوت
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        logger.info("🛑 تم إيقاف البوت بواسطة المستخدم")
+    except Exception as e:
+        logger.error(f"❌ خطأ حرج: {e}")
+        sys.exit(1)
