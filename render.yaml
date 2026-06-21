@@ -1,0 +1,30 @@
+services:
+  - type: web
+    name: pro-crypto-signal-bot
+    env: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: python bot.py
+    envVars:
+      - key: BOT_TOKEN
+        sync: false
+      - key: CHAT_ID
+        sync: false
+      - key: SYMBOLS
+        value: BTCUSDT,ETHUSDT,SOLUSDT
+      - key: CHECK_INTERVAL_SECONDS
+        value: 300
+      - key: COOLDOWN_MINUTES
+        value: 45
+      - key: MIN_SCORE
+        value: 85
+      - key: MAX_DAILY_LOSSES
+        value: 3
+      - key: MAX_DAILY_SIGNALS
+        value: 3
+      - key: ATR_STOP_MULT
+        value: 1.5
+      - key: RISK_PCT
+        value: 0.02
+      - key: ACCOUNT_SIZE
+        value: 100
